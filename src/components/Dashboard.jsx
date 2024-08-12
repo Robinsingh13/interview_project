@@ -1,57 +1,79 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import Modal from 'react-modal';
 import CountdownTimer from './CountdownTimer'; // Import the CountdownTimer component
+import api from '../services/api';
 
 Modal.setAppElement('#root');
 
-const Dashboard = ({ banners, onBannerUpdate, onBannerAdd }) => {
+const Dashboard = ({ banners, onBannerUpdate, onBannerAdd, fetchBanners }) => {
   const [description, setDescription] = useState('');
   const [timer, setTimer] = useState(60);
   const [link, setLink] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isVisible, setIsVisible] = useState(true);
   const [selectedBannerId, setSelectedBannerId] = useState(null);
-  const [bannerList, setBannerList] = useState([]);
   const [modalIsOpen, setModalIsOpen] = useState(false);
+  const [localBanners, setLocalBanners] = useState([]);
 
   useEffect(() => {
-    const fetchBanners = async () => {
-      const result = await axios.get('http://localhost:5000/api/get-banners');
-      {console.log(result)}
-      setBannerList(result.data);
-    };
-    fetchBanners();
+    // Initialize banners on component mount
+    setLocalBanners(banners);
+  }, [banners]);
+
+  useEffect(() => {
+    if (selectedBannerId) {
+      const fetchBanner = async () => {
+        try {
+          const result = await api.fetchBannerById(selectedBannerId);
+          const data = result.data;
+          setDescription(data.description);
+          setTimer(data.timer);
+          setLink(data.link);
+          setIsVisible(data.isVisible === 1);
+          setImageUrl(data.image_url || '');
+        } catch (error) {
+          console.error(`Error fetching banner with ID ${selectedBannerId}:`, error);
+        }
+      };
+      fetchBanner();
+      setModalIsOpen(true);
+    } else {
+      resetForm();
+    }
   }, [selectedBannerId]);
 
   const handleUpdate = async () => {
-    const expirationTime = new Date(Date.now() + timer * 1000).toISOString(); // Calculate expiration time
+    const expirationTime = new Date(Date.now() + timer * 1000).toISOString();
   
-    if (selectedBannerId) {
-      await axios.put(`http://localhost:5000/api/update-banner/${selectedBannerId}`, {
-        description,
-        timer,
-        link,
-        isVisible: isVisible ? 1 : 0,
-        imageUrl,
-        expirationTime
-      });
-      onBannerUpdate();
-    } else {
-      await axios.post('http://localhost:5000/api/add-banner', {
-        description,
-        timer,
-        link,
-        isVisible: isVisible ? 1 : 0,
-        imageUrl,
-        expirationTime
-      });
-      onBannerAdd();
+    try {
+      if (selectedBannerId) {
+        await api.updateBanner(selectedBannerId, {
+          description,
+          timer,
+          link,
+          isVisible: isVisible ? 1 : 0,
+          imageUrl,
+          expirationTime,
+        });
+      } else {
+        await api.addBanner({
+          description,
+          timer,
+          link,
+          isVisible: isVisible ? 1 : 0,
+          imageUrl,
+          expirationTime,
+        });
+      }
+      await fetchBanners(); // Fetch updated banners from the backend
+      resetForm();
+      setModalIsOpen(false);
+    } catch (error) {
+      console.error('Error updating or adding banner:', error);
     }
-    resetForm();
-    setModalIsOpen(false);
   };
-    const resetForm = () => {
+
+  const resetForm = () => {
     setDescription('');
     setTimer(60);
     setLink('');
@@ -61,41 +83,24 @@ const Dashboard = ({ banners, onBannerUpdate, onBannerAdd }) => {
   };
 
   const handleVisibilityToggle = async (bannerId, currentVisibility) => {
+    // Optimistic UI update
+    const updatedBanners = localBanners.map(banner =>
+      banner.id === bannerId ? { ...banner, isVisible: !currentVisibility } : banner
+    );
+    setLocalBanners(updatedBanners);
+
     try {
-      const response = await axios.put(`http://localhost:5000/api/update-banner-visibility/${bannerId}`, {
-        isVisible: currentVisibility ? 0 : 1
-      });
-  {
-    console.log(response);
-  }
-      if (response.data.affectedRows > 0) { // Check if the update was successful
-        setBannerList(bannerList.map(banner => 
-          banner.id === bannerId ? { ...banner, isVisible: !currentVisibility } : banner
-        ));
-      } else {
-        console.error('Banner visibility update failed.');
-      }
+      await api.updateBannerVisibility(bannerId, currentVisibility ? 0 : 1);
+      await fetchBanners(); // Ensure data is consistent with the backend
     } catch (error) {
-      console.error('Error toggling banner visibility:', error);
+      console.error(`Error updating visibility for banner with ID ${bannerId}:`, error);
+      // Rollback UI update if API call fails
+      const revertedBanners = localBanners.map(banner =>
+        banner.id === bannerId ? { ...banner, isVisible: currentVisibility } : banner
+      );
+      setLocalBanners(revertedBanners);
     }
   };
-  
-
-  useEffect(() => {
-    if (selectedBannerId) {
-      const fetchBanner = async () => {
-        const result = await axios.get(`http://localhost:5000/api/get-banner/${selectedBannerId}`);
-        const data = result.data;
-        setDescription(data.description);
-        setTimer(data.timer);
-        setLink(data.link);
-        setIsVisible(data.isVisible === 1);
-        setImageUrl(data.image_url || '');
-      };
-      fetchBanner();
-      setModalIsOpen(true);
-    }
-  }, [selectedBannerId]);
 
   return (
     <div className="bg-gray-100 p-8 my-8">
@@ -178,7 +183,7 @@ const Dashboard = ({ banners, onBannerUpdate, onBannerAdd }) => {
       <h2 className="text-2xl font-semibold mt-8 mb-4">Banner List</h2>
       <div className="overflow-x-auto">
         <table className="min-w-full bg-white border border-gray-300">
-          <thead className=''>
+          <thead>
             <tr>
               <th className="border-b px-4 py-2">ID</th>
               <th className="border-b px-4 py-2">Image</th>
@@ -189,9 +194,8 @@ const Dashboard = ({ banners, onBannerUpdate, onBannerAdd }) => {
               <th className="border-b px-4 py-2">Actions</th>
             </tr>
           </thead>
-          <tbody className='text-center justify-center items-center'>
-            {console.log(bannerList)}
-            {bannerList.map(banner => (
+          <tbody className='text-center'>
+            {localBanners.map(banner => (
               <tr key={banner.id}>
                 <td className="border-b px-4 py-2">{banner.id}</td>
                 <td className="border-b px-4 py-2">
@@ -212,8 +216,8 @@ const Dashboard = ({ banners, onBannerUpdate, onBannerAdd }) => {
                   <label className="switch">
                     <input
                       type="checkbox"
-                      checked={banner.isVisible}
-                      onChange={() => handleVisibilityToggle(banner.id, banner.isVisible)}
+                      checked={banner.isVisible === 1}
+                      onChange={() => handleVisibilityToggle(banner.id, banner.isVisible === 1)}
                     />
                     <span className="slider"></span>
                   </label>

@@ -3,21 +3,26 @@ import axios from 'axios';
 import BannerList from './components/BannerList';
 import Dashboard from './components/Dashboard';
 import { BrowserRouter as Router, Route, Link, Routes } from 'react-router-dom';
+import API_CONFIG from './ipconfig';
+import api from './services/api';
 
 const App = () => {
   const [banners, setBanners] = useState([]);
   const [selectedBannerId, setSelectedBannerId] = useState(null);
-  const API_BASE_URL = process.env.REACT_APP_API_URL; // Access the API base URL from the environment variable
+  const API_BASE_URL = API_CONFIG.API_URL; 
 
+  // Fetch banners from the API
   const fetchBanners = async () => {
     try {
-      const result = await axios.get(`${API_BASE_URL}/get-banners`);
-      setBanners(result.data);
+      const result = await api.fetchBanners();
+      {console.log(result)}
+      setBanners(result);
     } catch (error) {
       console.error('Error fetching banners:', error);
     }
   };
 
+  // Use effect to fetch banners on component mount
   useEffect(() => {
     fetchBanners();
   }, []);
@@ -48,6 +53,7 @@ const App = () => {
                 banners={banners}
                 onBannerUpdate={handleBannerUpdate}
                 onBannerAdd={handleBannerAdd}
+                fetchBanners={fetchBanners} // Pass fetchBanners as a prop
               />
             } />
             <Route path="/" element={
